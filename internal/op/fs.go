@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Xhofe/go-cache"
+	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
@@ -58,10 +59,18 @@ func List(ctx context.Context, storage driver.Driver, path string, args model.Li
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to list objs")
 		}
+		// call hooks
+		go func() {
+			for _, hook := range objsUpdateHooks {
+				hook(args.ReqPath, files)
+			}
+		}()
 		if !storage.Config().NoCache {
 			if len(files) > 0 {
+				log.Debugf("set cache: %s => %+v", key, files)
 				listCache.Set(key, files, cache.WithEx[[]model.Obj](time.Minute*time.Duration(storage.GetStorage().CacheExpiration)))
 			} else {
+				log.Debugf("del cache: %s", key)
 				listCache.Del(key)
 			}
 		}
@@ -120,7 +129,7 @@ func Get(ctx context.Context, storage driver.Driver, path string) (model.Obj, er
 	}
 	for _, f := range files {
 		// TODO maybe copy obj here
-		if f.GetName() == name {
+		if utils.MappingName(f.GetName(), conf.FilenameCharMap) == name {
 			// use path as id, why don't set id in List function?
 			// because files maybe cache, set id here can reduce memory usage
 			if f.GetPath() == "" {

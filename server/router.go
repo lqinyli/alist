@@ -107,10 +107,15 @@ func admin(g *gin.RouterGroup) {
 	ms := g.Group("/message")
 	ms.POST("/get", message.HttpInstance.GetHandle)
 	ms.POST("/send", message.HttpInstance.SendHandle)
+
+	index := g.Group("/index")
+	index.POST("/build", middlewares.SearchIndex, handles.BuildIndex)
+	index.GET("/progress", middlewares.SearchIndex, handles.GetProgress)
 }
 
 func _fs(g *gin.RouterGroup) {
 	g.Any("/list", handles.FsList)
+	g.Any("/search", middlewares.SearchIndex, handles.Search)
 	g.Any("/get", handles.FsGet)
 	g.Any("/other", handles.FsOther)
 	g.Any("/dirs", handles.FsDirs)
@@ -119,8 +124,8 @@ func _fs(g *gin.RouterGroup) {
 	g.POST("/move", handles.FsMove)
 	g.POST("/copy", handles.FsCopy)
 	g.POST("/remove", handles.FsRemove)
-	g.PUT("/put", handles.FsStream)
-	g.PUT("/form", handles.FsForm)
+	g.PUT("/put", middlewares.FsUp, handles.FsStream)
+	g.PUT("/form", middlewares.FsUp, handles.FsForm)
 	g.POST("/link", middlewares.AuthAdmin, handles.Link)
 	g.POST("/add_aria2", handles.AddAria2)
 }
@@ -128,6 +133,6 @@ func _fs(g *gin.RouterGroup) {
 func Cors(r *gin.Engine) {
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
-	config.AllowHeaders = append(config.AllowHeaders, "Authorization", "range", "File-Path", "As-Task")
+	config.AllowHeaders = append(config.AllowHeaders, "Authorization", "range", "File-Path", "As-Task", "Password")
 	r.Use(cors.New(config))
 }

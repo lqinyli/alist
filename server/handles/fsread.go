@@ -19,7 +19,7 @@ import (
 )
 
 type ListReq struct {
-	common.PageReq
+	model.PageReq
 	Path     string `json:"path" form:"path"`
 	Password string `json:"password" form:"password"`
 	Refresh  bool   `json:"refresh"`
@@ -66,11 +66,11 @@ func FsList(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !canAccess(user, meta, req.Path, req.Password) {
+	if !common.CanAccess(user, meta, req.Path, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect", 403)
 		return
 	}
-	if !user.CanWrite() && !canWrite(meta, req.Path) && req.Refresh {
+	if !user.CanWrite() && !common.CanWrite(meta, req.Path) && req.Refresh {
 		common.ErrorStrResp(c, "Refresh without permission", 403)
 		return
 	}
@@ -86,10 +86,10 @@ func FsList(c *gin.Context) {
 		provider = storage.GetStorage().Driver
 	}
 	common.SuccessResp(c, FsListResp{
-		Content:  toObjResp(objs, isEncrypt(meta, req.Path)),
+		Content:  toObjsResp(objs, req.Path, isEncrypt(meta, req.Path)),
 		Total:    int64(total),
 		Readme:   getReadme(meta, req.Path),
-		Write:    user.CanWrite() || canWrite(meta, req.Path),
+		Write:    user.CanWrite() || common.CanWrite(meta, req.Path),
 		Provider: provider,
 	})
 }
@@ -117,7 +117,7 @@ func FsDirs(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !canAccess(user, meta, req.Path, req.Password) {
+	if !common.CanAccess(user, meta, req.Path, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect", 403)
 		return
 	}
@@ -140,7 +140,7 @@ func filterDirs(objs []model.Obj) []DirResp {
 	for _, obj := range objs {
 		if obj.IsDir() {
 			dirs = append(dirs, DirResp{
-				Name:     obj.GetName(),
+				Name:     utils.MappingName(obj.GetName(), conf.FilenameCharMap),
 				Modified: obj.ModTime(),
 			})
 		}
@@ -155,23 +155,6 @@ func getReadme(meta *model.Meta, path string) string {
 	return ""
 }
 
-func canAccess(user *model.User, meta *model.Meta, path string, password string) bool {
-	// if is not guest, can access
-	if user.CanAccessWithoutPassword() {
-		return true
-	}
-	// if meta is nil or password is empty, can access
-	if meta == nil || meta.Password == "" {
-		return true
-	}
-	// if meta doesn't apply to sub_folder, can access
-	if !utils.PathEqual(meta.Path, path) && !meta.PSub {
-		return true
-	}
-	// validate password
-	return meta.Password == password
-}
-
 func isEncrypt(meta *model.Meta, path string) bool {
 	if meta == nil || meta.Password == "" {
 		return false
@@ -182,7 +165,7 @@ func isEncrypt(meta *model.Meta, path string) bool {
 	return true
 }
 
-func pagination(objs []model.Obj, req *common.PageReq) (int, []model.Obj) {
+func pagination(objs []model.Obj, req *model.PageReq) (int, []model.Obj) {
 	pageIndex, pageSize := req.Page, req.PerPage
 	total := len(objs)
 	start := (pageIndex - 1) * pageSize
@@ -196,25 +179,21 @@ func pagination(objs []model.Obj, req *common.PageReq) (int, []model.Obj) {
 	return total, objs[start:end]
 }
 
-func toObjResp(objs []model.Obj, encrypt bool) []ObjResp {
+func toObjsResp(objs []model.Obj, parent string, encrypt bool) []ObjResp {
 	var resp []ObjResp
 	for _, obj := range objs {
 		thumb := ""
 		if t, ok := obj.(model.Thumb); ok {
 			thumb = t.Thumb()
 		}
-		tp := conf.FOLDER
-		if !obj.IsDir() {
-			tp = utils.GetFileType(obj.GetName())
-		}
 		resp = append(resp, ObjResp{
-			Name:     obj.GetName(),
+			Name:     utils.MappingName(obj.GetName(), conf.FilenameCharMap),
 			Size:     obj.GetSize(),
 			IsDir:    obj.IsDir(),
 			Modified: obj.ModTime(),
-			Sign:     common.Sign(obj, encrypt),
+			Sign:     common.Sign(obj, parent, encrypt),
 			Thumb:    thumb,
-			Type:     tp,
+			Type:     utils.GetObjType(obj.GetName(), obj.IsDir()),
 		})
 	}
 	return resp
@@ -249,7 +228,7 @@ func FsGet(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !canAccess(user, meta, req.Path, req.Password) {
+	if !common.CanAccess(user, meta, req.Path, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect", 403)
 		return
 	}
@@ -272,12 +251,15 @@ func FsGet(c *gin.Context) {
 		}
 		if storage.Config().MustProxy() || storage.GetStorage().WebProxy {
 			if storage.GetStorage().DownProxyUrl != "" {
-				rawURL = fmt.Sprintf("%s%s?sign=%s", strings.Split(storage.GetStorage().DownProxyUrl, "\n")[0], req.Path, sign.Sign(obj.GetName()))
+				rawURL = fmt.Sprintf("%s%s?sign=%s",
+					strings.Split(storage.GetStorage().DownProxyUrl, "\n")[0],
+					utils.EncodePath(req.Path, true),
+					sign.Sign(req.Path))
 			} else {
 				rawURL = fmt.Sprintf("%s/p%s?sign=%s",
 					common.GetApiUrl(c.Request),
 					utils.EncodePath(req.Path, true),
-					sign.Sign(obj.GetName()))
+					sign.Sign(req.Path))
 			}
 		} else {
 			// file have raw url
@@ -303,17 +285,17 @@ func FsGet(c *gin.Context) {
 	parentMeta, _ := db.GetNearestMeta(parentPath)
 	common.SuccessResp(c, FsGetResp{
 		ObjResp: ObjResp{
-			Name:     obj.GetName(),
+			Name:     utils.MappingName(obj.GetName(), conf.FilenameCharMap),
 			Size:     obj.GetSize(),
 			IsDir:    obj.IsDir(),
 			Modified: obj.ModTime(),
-			Sign:     common.Sign(obj, isEncrypt(meta, req.Path)),
+			Sign:     common.Sign(obj, parentPath, isEncrypt(meta, req.Path)),
 			Type:     utils.GetFileType(obj.GetName()),
 		},
 		RawURL:   rawURL,
 		Readme:   getReadme(meta, req.Path),
 		Provider: provider,
-		Related:  toObjResp(related, isEncrypt(parentMeta, parentPath)),
+		Related:  toObjsResp(related, parentPath, isEncrypt(parentMeta, parentPath)),
 	})
 }
 
@@ -352,7 +334,7 @@ func FsOther(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !canAccess(user, meta, req.Path, req.Password) {
+	if !common.CanAccess(user, meta, req.Path, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect", 403)
 		return
 	}

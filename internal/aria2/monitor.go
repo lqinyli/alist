@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -105,7 +106,14 @@ func (m *Monitor) Update() (bool, error) {
 		return true, errors.WithMessage(err, "failed to transfer file")
 	case "error":
 		return true, errors.Errorf("failed to download %s, error: %s", m.tsk.ID, info.ErrorMessage)
-	case "active", "waiting", "paused":
+	case "active":
+		m.tsk.SetStatus("aria2: " + info.Status)
+		if info.Seeder == "true" {
+			err := m.Complete()
+			return true, errors.WithMessage(err, "failed to transfer file")
+		}
+		return false, nil
+	case "waiting", "paused":
 		m.tsk.SetStatus("aria2: " + info.Status)
 		return false, nil
 	case "removed":
@@ -164,7 +172,12 @@ func (m *Monitor) Complete() error {
 					ReadCloser: f,
 					Mimetype:   mimetype,
 				}
-				return op.Put(tsk.Ctx, storage, dstDirActualPath, stream, tsk.SetProgress)
+				relDir, err := filepath.Rel(m.tempDir, filepath.Dir(file.Path))
+				if err != nil {
+					log.Errorf("find relation directory error: %v", err)
+				}
+				newDistDir := filepath.Join(dstDirActualPath, relDir)
+				return op.Put(tsk.Ctx, storage, newDistDir, stream, tsk.SetProgress)
 			},
 		}))
 	}
