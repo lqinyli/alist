@@ -24,7 +24,7 @@ var config = driver.Config{
 }
 
 func init() {
-	op.RegisterDriver(config, func() driver.Driver {
-		return &Yun189PC{}
+	op.RegisterDriver(func() driver.Driver {
+		return &Cloud189PC{}
 	})
 }

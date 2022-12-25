@@ -10,7 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -28,6 +30,8 @@ func Proxy(w http.ResponseWriter, r *http.Request, link *model.Link, file model.
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, file.GetName(), url.QueryEscape(file.GetName())))
 		w.Header().Set("Content-Length", strconv.FormatInt(file.GetSize(), 10))
 		if link.Header != nil {
+			// TODO clean header with blacklist or whitelist
+			link.Header.Del("set-cookie")
 			for h, val := range link.Header {
 				w.Header()[h] = val
 			}
@@ -65,7 +69,7 @@ func Proxy(w http.ResponseWriter, r *http.Request, link *model.Link, file model.
 			return err
 		}
 		for h, val := range r.Header {
-			if strings.ToLower(h) == "authorization" {
+			if utils.SliceContains(conf.SlicesMap[conf.ProxyIgnoreHeaders], strings.ToLower(h)) {
 				continue
 			}
 			req.Header[h] = val
@@ -81,6 +85,8 @@ func Proxy(w http.ResponseWriter, r *http.Request, link *model.Link, file model.
 			_ = res.Body.Close()
 		}()
 		log.Debugf("proxy status: %d", res.StatusCode)
+		// TODO clean header with blacklist or whitelist
+		res.Header.Del("set-cookie")
 		for h, v := range res.Header {
 			w.Header()[h] = v
 		}

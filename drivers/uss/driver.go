@@ -25,15 +25,10 @@ func (d *USS) Config() driver.Config {
 }
 
 func (d *USS) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *USS) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *USS) Init(ctx context.Context) error {
 	d.client = upyun.NewUpYun(&upyun.UpYunConfig{
 		Bucket:   d.Bucket,
 		Operator: d.OperatorName,
@@ -75,11 +70,6 @@ func (d *USS) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]m
 	}
 	return res, err
 }
-
-//func (d *USS) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *USS) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	key := getKey(file.GetPath(), false)
@@ -133,6 +123,7 @@ func (d *USS) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *USS) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	// TODO not support cancel??
 	return d.client.Put(&upyun.PutObjectConfig{
 		Path:   getKey(path.Join(dstDir.GetPath(), stream.GetName()), false),
 		Reader: stream,

@@ -19,11 +19,15 @@ import (
 )
 
 func InitDB() {
+	logLevel := logger.Silent
+	if flags.Debug || flags.Dev {
+		logLevel = logger.Info
+	}
 	newLogger := logger.New(
 		stdlog.New(log.StandardLogger().Out, "\r\n", stdlog.LstdFlags),
 		logger.Config{
 			SlowThreshold:             time.Second,
-			LogLevel:                  logger.Silent,
+			LogLevel:                  logLevel,
 			IgnoreRecordNotFoundError: true,
 			Colorful:                  true,
 		},
@@ -38,6 +42,7 @@ func InitDB() {
 	var err error
 	if flags.Dev {
 		dB, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), gormConfig)
+		conf.Conf.Database.Type = "sqlite3"
 	} else {
 		database := conf.Conf.Database
 		switch database.Type {

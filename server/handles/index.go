@@ -3,25 +3,27 @@ package handles
 import (
 	"context"
 
+	"github.com/alist-org/alist/v3/internal/conf"
+	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/search"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 )
 
-type BuildIndexReq struct {
-	Paths       []string `json:"paths"`
-	MaxDepth    int      `json:"max_depth"`
-	IgnorePaths []string `json:"ignore_paths"`
+type BuildOrUpdateIndexReq struct {
+	Paths    []string `json:"paths"`
+	MaxDepth int      `json:"max_depth"`
+	//IgnorePaths []string `json:"ignore_paths"`
 }
 
 func BuildIndex(c *gin.Context) {
-	var req BuildIndexReq
+	var req BuildOrUpdateIndexReq
 	if err := c.ShouldBind(&req); err != nil {
 		common.ErrorResp(c, err, 400)
 		return
 	}
-	if search.Running {
+	if search.Running.Load() {
 		common.ErrorStrResp(c, "index is running", 400)
 		return
 	}
@@ -32,7 +34,8 @@ func BuildIndex(c *gin.Context) {
 			log.Errorf("clear index error: %+v", err)
 			return
 		}
-		err = search.BuildIndex(context.Background(), req.Paths, req.IgnorePaths, req.MaxDepth, true)
+		err = search.BuildIndex(context.Background(), req.Paths,
+			conf.SlicesMap[conf.IgnorePaths], req.MaxDepth, true)
 		if err != nil {
 			log.Errorf("build index error: %+v", err)
 		}
@@ -40,8 +43,63 @@ func BuildIndex(c *gin.Context) {
 	common.SuccessResp(c)
 }
 
+func UpdateIndex(c *gin.Context) {
+	var req BuildOrUpdateIndexReq
+	if err := c.ShouldBind(&req); err != nil {
+		common.ErrorResp(c, err, 400)
+		return
+	}
+	if search.Running.Load() {
+		common.ErrorStrResp(c, "index is running", 400)
+		return
+	}
+	if !search.Config(c).AutoUpdate {
+		common.ErrorStrResp(c, "update is not supported for current index", 400)
+	}
+	go func() {
+		ctx := context.Background()
+		for _, path := range req.Paths {
+			err := search.Del(ctx, path)
+			if err != nil {
+				log.Errorf("delete index on %s error: %+v", path, err)
+				return
+			}
+		}
+		err := search.BuildIndex(context.Background(), req.Paths,
+			conf.SlicesMap[conf.IgnorePaths], req.MaxDepth, false)
+		if err != nil {
+			log.Errorf("update index error: %+v", err)
+		}
+	}()
+	common.SuccessResp(c)
+}
+
+func StopIndex(c *gin.Context) {
+	if !search.Running.Load() {
+		common.ErrorStrResp(c, "index is not running", 400)
+		return
+	}
+	search.Quit <- struct{}{}
+	common.SuccessResp(c)
+}
+
+func ClearIndex(c *gin.Context) {
+	if search.Running.Load() {
+		common.ErrorStrResp(c, "index is running", 400)
+		return
+	}
+	search.Clear(c)
+	search.WriteProgress(&model.IndexProgress{
+		ObjCount:     0,
+		IsDone:       false,
+		LastDoneTime: nil,
+		Error:        "",
+	})
+	common.SuccessResp(c)
+}
+
 func GetProgress(c *gin.Context) {
-	progress, err := search.Progress(c)
+	progress, err := search.Progress()
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return

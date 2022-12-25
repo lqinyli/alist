@@ -4,10 +4,10 @@ import (
 	"fmt"
 	stdpath "path"
 
-	"github.com/alist-org/alist/v3/internal/db"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/fs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/internal/sign"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
@@ -26,25 +26,28 @@ func FsMkdir(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(*model.User)
-	req.Path = stdpath.Join(user.BasePath, req.Path)
+	reqPath, err := user.JoinPath(req.Path)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
 	if !user.CanWrite() {
-		meta, err := db.GetNearestMeta(stdpath.Dir(req.Path))
+		meta, err := op.GetNearestMeta(stdpath.Dir(reqPath))
 		if err != nil {
 			if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
 				common.ErrorResp(c, err, 500, true)
 				return
 			}
 		}
-		if !common.CanWrite(meta, req.Path) {
+		if !common.CanWrite(meta, reqPath) {
 			common.ErrorResp(c, errs.PermissionDenied, 403)
 			return
 		}
 	}
-	if err := fs.MakeDir(c, req.Path); err != nil {
+	if err := fs.MakeDir(c, reqPath); err != nil {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	fs.ClearCache(stdpath.Dir(req.Path))
 	common.SuccessResp(c)
 }
 
@@ -69,17 +72,23 @@ func FsMove(c *gin.Context) {
 		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
-	req.SrcDir = stdpath.Join(user.BasePath, req.SrcDir)
-	req.DstDir = stdpath.Join(user.BasePath, req.DstDir)
-	for _, name := range req.Names {
-		err := fs.Move(c, stdpath.Join(req.SrcDir, name), req.DstDir)
+	srcDir, err := user.JoinPath(req.SrcDir)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
+	dstDir, err := user.JoinPath(req.DstDir)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
+	for i, name := range req.Names {
+		err := fs.Move(c, stdpath.Join(srcDir, name), dstDir, len(req.Names) > i+1)
 		if err != nil {
 			common.ErrorResp(c, err, 500)
 			return
 		}
 	}
-	fs.ClearCache(req.SrcDir)
-	fs.ClearCache(req.DstDir)
 	common.SuccessResp(c)
 }
 
@@ -98,11 +107,19 @@ func FsCopy(c *gin.Context) {
 		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
-	req.SrcDir = stdpath.Join(user.BasePath, req.SrcDir)
-	req.DstDir = stdpath.Join(user.BasePath, req.DstDir)
+	srcDir, err := user.JoinPath(req.SrcDir)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
+	dstDir, err := user.JoinPath(req.DstDir)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
 	var addedTask []string
-	for _, name := range req.Names {
-		ok, err := fs.Copy(c, stdpath.Join(req.SrcDir, name), req.DstDir)
+	for i, name := range req.Names {
+		ok, err := fs.Copy(c, stdpath.Join(srcDir, name), dstDir, len(req.Names) > i+1)
 		if ok {
 			addedTask = append(addedTask, name)
 		}
@@ -110,9 +127,6 @@ func FsCopy(c *gin.Context) {
 			common.ErrorResp(c, err, 500)
 			return
 		}
-	}
-	if len(req.Names) != len(addedTask) {
-		fs.ClearCache(req.DstDir)
 	}
 	if len(addedTask) > 0 {
 		common.SuccessResp(c, fmt.Sprintf("Added %d tasks", len(addedTask)))
@@ -137,12 +151,15 @@ func FsRename(c *gin.Context) {
 		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
-	req.Path = stdpath.Join(user.BasePath, req.Path)
-	if err := fs.Rename(c, req.Path, req.Name); err != nil {
+	reqPath, err := user.JoinPath(req.Path)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
+	if err := fs.Rename(c, reqPath, req.Name); err != nil {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	fs.ClearCache(stdpath.Dir(req.Path))
 	common.SuccessResp(c)
 }
 
@@ -166,9 +183,13 @@ func FsRemove(c *gin.Context) {
 		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
-	req.Dir = stdpath.Join(user.BasePath, req.Dir)
+	reqDir, err := user.JoinPath(req.Dir)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
 	for _, name := range req.Names {
-		err := fs.Remove(c, stdpath.Join(req.Dir, name))
+		err := fs.Remove(c, stdpath.Join(reqDir, name))
 		if err != nil {
 			common.ErrorResp(c, err, 500)
 			return
@@ -185,8 +206,10 @@ func Link(c *gin.Context) {
 		common.ErrorResp(c, err, 400)
 		return
 	}
-	user := c.MustGet("user").(*model.User)
-	rawPath := stdpath.Join(user.BasePath, req.Path)
+	//user := c.MustGet("user").(*model.User)
+	//rawPath := stdpath.Join(user.BasePath, req.Path)
+	// why need not join base_path? because it's always the full path
+	rawPath := req.Path
 	storage, err := fs.GetStorage(rawPath)
 	if err != nil {
 		common.ErrorResp(c, err, 500)

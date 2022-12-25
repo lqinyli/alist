@@ -26,16 +26,11 @@ func (d *WebDav) Config() driver.Config {
 }
 
 func (d *WebDav) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *WebDav) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
-	err = d.setClient()
+func (d *WebDav) Init(ctx context.Context) error {
+	err := d.setClient()
 	if err == nil {
 		d.cron = cron.NewCron(time.Hour * 12)
 		d.cron.Do(func() {
@@ -67,30 +62,15 @@ func (d *WebDav) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 	})
 }
 
-//func (d *WebDav) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
-
 func (d *WebDav) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
-	callback := func(r *http.Request) {
-		if args.Header.Get("Range") != "" {
-			r.Header.Set("Range", args.Header.Get("Range"))
-		}
-		if args.Header.Get("If-Range") != "" {
-			r.Header.Set("If-Range", args.Header.Get("If-Range"))
-		}
-	}
-	reader, header, err := d.client.ReadStream(file.GetPath(), callback)
+	url, header, err := d.client.Link(file.GetPath())
 	if err != nil {
 		return nil, err
 	}
-	link := &model.Link{Data: reader}
-	if header.Get("Content-Range") != "" {
-		link.Status = 206
-		link.Header = header
-	}
-	return link, nil
+	return &model.Link{
+		URL:    url,
+		Header: header,
+	}, nil
 }
 
 func (d *WebDav) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
@@ -118,6 +98,7 @@ func (d *WebDav) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		r.Header.Set("Content-Type", stream.GetMimetype())
 		r.ContentLength = stream.GetSize()
 	}
+	// TODO: support cancel
 	err := d.client.WriteStream(path.Join(dstDir.GetPath(), stream.GetName()), stream, 0644, callback)
 	return err
 }

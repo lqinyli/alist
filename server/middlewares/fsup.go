@@ -4,9 +4,9 @@ import (
 	"net/url"
 	stdpath "path"
 
-	"github.com/alist-org/alist/v3/internal/db"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -22,8 +22,12 @@ func FsUp(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(*model.User)
-	path = stdpath.Join(user.BasePath, path)
-	meta, err := db.GetNearestMeta(stdpath.Dir(path))
+	path, err = user.JoinPath(path)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
+	meta, err := op.GetNearestMeta(stdpath.Dir(path))
 	if err != nil {
 		if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
 			common.ErrorResp(c, err, 500, true)

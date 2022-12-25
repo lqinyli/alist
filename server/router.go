@@ -16,6 +16,9 @@ func Init(r *gin.Engine) {
 	common.SecretKey = []byte(conf.Conf.JwtSecret)
 	Cors(r)
 	r.Use(middlewares.StoragesLoaded)
+	if conf.Conf.MaxConnections > 0 {
+		r.Use(middlewares.MaxAllowed(conf.Conf.MaxConnections))
+	}
 	WebDav(r.Group("/dav"))
 
 	r.GET("/favicon.ico", handles.Favicon)
@@ -68,6 +71,7 @@ func admin(g *gin.RouterGroup) {
 	storage.POST("/delete", handles.DeleteStorage)
 	storage.POST("/enable", handles.EnableStorage)
 	storage.POST("/disable", handles.DisableStorage)
+	storage.POST("/load_all", handles.LoadAllStorages)
 
 	driver := g.Group("/driver")
 	driver.GET("/list", handles.ListDriverInfo)
@@ -110,6 +114,9 @@ func admin(g *gin.RouterGroup) {
 
 	index := g.Group("/index")
 	index.POST("/build", middlewares.SearchIndex, handles.BuildIndex)
+	index.POST("/update", middlewares.SearchIndex, handles.UpdateIndex)
+	index.POST("/stop", middlewares.SearchIndex, handles.StopIndex)
+	index.POST("/clear", middlewares.SearchIndex, handles.ClearIndex)
 	index.GET("/progress", middlewares.SearchIndex, handles.GetProgress)
 }
 
@@ -133,6 +140,8 @@ func _fs(g *gin.RouterGroup) {
 func Cors(r *gin.Engine) {
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
-	config.AllowHeaders = append(config.AllowHeaders, "Authorization", "range", "File-Path", "As-Task", "Password")
+	//config.AllowHeaders = append(config.AllowHeaders, "Authorization", "range", "File-Path", "As-Task", "Password")
+	config.AllowHeaders = []string{"*"}
+	config.AllowMethods = []string{"*"}
 	r.Use(cors.New(config))
 }

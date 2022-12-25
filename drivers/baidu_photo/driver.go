@@ -29,15 +29,10 @@ func (d *BaiduPhoto) Config() driver.Config {
 }
 
 func (d *BaiduPhoto) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *BaiduPhoto) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *BaiduPhoto) Init(ctx context.Context) error {
 	return d.refreshToken()
 }
 
@@ -245,6 +240,9 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		}
 
 		for i := 0; i < count; i++ {
+			if utils.IsCanceled(ctx) {
+				return ctx.Err()
+			}
 			uploadParams["partseq"] = fmt.Sprint(i)
 			_, err = d.Post("https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2", func(r *resty.Request) {
 				r.SetContext(ctx)

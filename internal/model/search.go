@@ -18,9 +18,16 @@ type SearchReq struct {
 	PageReq
 }
 
+type SearchNodeMySQL struct {
+	Parent string `json:"parent" gorm:"index"`
+	Name   string `json:"name" gorm:"index:,class:FULLTEXT"`
+	IsDir  bool   `json:"is_dir"`
+	Size   int64  `json:"size"`
+}
+
 type SearchNode struct {
 	Parent string `json:"parent" gorm:"index"`
-	Name   string `json:"name" gorm:"index"`
+	Name   string `json:"name"`
 	IsDir  bool   `json:"is_dir"`
 	Size   int64  `json:"size"`
 }
@@ -33,4 +40,8 @@ func (p *SearchReq) Validate() error {
 		return fmt.Errorf("per_page can't < 1")
 	}
 	return nil
+}
+
+func (s *SearchNode) Type() string {
+	return "SearchNode"
 }

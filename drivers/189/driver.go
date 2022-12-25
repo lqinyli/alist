@@ -26,15 +26,10 @@ func (d *Cloud189) Config() driver.Config {
 }
 
 func (d *Cloud189) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *Cloud189) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *Cloud189) Init(ctx context.Context) error {
 	d.client = resty.New().
 		SetTimeout(base.DefaultTimeout).
 		SetRetryCount(3).
@@ -50,11 +45,6 @@ func (d *Cloud189) Drop(ctx context.Context) error {
 func (d *Cloud189) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
 	return d.getFiles(dir.GetID())
 }
-
-//func (d *Cloud189) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *Cloud189) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	var resp DownResp
@@ -204,7 +194,7 @@ func (d *Cloud189) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Cloud189) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	return d.newUpload(dstDir, stream, up)
+	return d.newUpload(ctx, dstDir, stream, up)
 }
 
 var _ driver.Driver = (*Cloud189)(nil)

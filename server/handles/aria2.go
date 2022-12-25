@@ -1,12 +1,10 @@
 package handles
 
 import (
-	stdpath "path"
-
 	"github.com/alist-org/alist/v3/internal/aria2"
 	"github.com/alist-org/alist/v3/internal/conf"
-	"github.com/alist-org/alist/v3/internal/db"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 )
@@ -26,7 +24,7 @@ func SetAria2(c *gin.Context) {
 		{Key: conf.Aria2Uri, Value: req.Uri, Type: conf.TypeString, Group: model.ARIA2, Flag: model.PRIVATE},
 		{Key: conf.Aria2Secret, Value: req.Secret, Type: conf.TypeString, Group: model.ARIA2, Flag: model.PRIVATE},
 	}
-	if err := db.SaveSettingItems(items); err != nil {
+	if err := op.SaveSettingItems(items); err != nil {
 		common.ErrorResp(c, err, 500)
 		return
 	}
@@ -58,9 +56,13 @@ func AddAria2(c *gin.Context) {
 		common.ErrorResp(c, err, 400)
 		return
 	}
-	req.Path = stdpath.Join(user.BasePath, req.Path)
+	reqPath, err := user.JoinPath(req.Path)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
 	for _, url := range req.Urls {
-		err := aria2.AddURI(c, url, req.Path)
+		err := aria2.AddURI(c, url, reqPath)
 		if err != nil {
 			common.ErrorResp(c, err, 500)
 			return

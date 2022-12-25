@@ -38,18 +38,13 @@ func (d *AliDrive) Config() driver.Config {
 }
 
 func (d *AliDrive) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *AliDrive) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *AliDrive) Init(ctx context.Context) error {
 	// TODO login / refresh token
 	//op.MustSaveDriverStorage(d)
-	err = d.refreshToken()
+	err := d.refreshToken()
 	if err != nil {
 		return err
 	}
@@ -85,11 +80,6 @@ func (d *AliDrive) List(ctx context.Context, dir model.Obj, args model.ListArgs)
 		return fileToObj(src), nil
 	})
 }
-
-//func (d *AliDrive) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// TODO this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *AliDrive) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	data := base.Json{
@@ -258,10 +248,14 @@ func (d *AliDrive) Put(ctx context.Context, dstDir model.Obj, stream model.FileS
 	}
 
 	for i, partInfo := range resp.PartInfoList {
+		if utils.IsCanceled(ctx) {
+			return ctx.Err()
+		}
 		req, err := http.NewRequest("PUT", partInfo.UploadUrl, io.LimitReader(file, DEFAULT))
 		if err != nil {
 			return err
 		}
+		req = req.WithContext(ctx)
 		res, err := base.HttpClient.Do(req)
 		if err != nil {
 			return err

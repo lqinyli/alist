@@ -16,11 +16,12 @@ import (
 
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/driver"
-	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/sign"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/disintegration/imaging"
+	_ "golang.org/x/image/webp"
 )
 
 type Local struct {
@@ -32,24 +33,18 @@ func (d *Local) Config() driver.Config {
 	return config
 }
 
-func (d *Local) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *Local) Init(ctx context.Context) error {
 	if !utils.Exists(d.GetRootPath()) {
-		err = fmt.Errorf("root folder %s not exists", d.GetRootPath())
-	} else {
-		if !filepath.IsAbs(d.GetRootPath()) {
-			abs, err := filepath.Abs(d.GetRootPath())
-			if err != nil {
-				return err
-			}
-			d.SetRootPath(abs)
-		}
+		return fmt.Errorf("root folder %s not exists", d.GetRootPath())
 	}
-	return err
+	if !filepath.IsAbs(d.GetRootPath()) {
+		abs, err := filepath.Abs(d.GetRootPath())
+		if err != nil {
+			return err
+		}
+		d.Addition.RootFolderPath = abs
+	}
+	return nil
 }
 
 func (d *Local) Drop(ctx context.Context) error {
@@ -57,7 +52,7 @@ func (d *Local) Drop(ctx context.Context) error {
 }
 
 func (d *Local) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
 func (d *Local) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
@@ -75,15 +70,16 @@ func (d *Local) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([
 		if d.Thumbnail && utils.GetFileType(f.Name()) == conf.IMAGE {
 			thumb = common.GetApiUrl(nil) + stdpath.Join("/d", args.ReqPath, f.Name())
 			thumb = utils.EncodePath(thumb, true)
-			thumb += "?type=thumb"
+			thumb += "?type=thumb&sign=" + sign.Sign(stdpath.Join(args.ReqPath, f.Name()))
 		}
 		isFolder := f.IsDir() || isSymlinkDir(f, fullPath)
-		size := f.Size()
-		if isFolder {
-			size = 0
+		var size int64
+		if !isFolder {
+			size = f.Size()
 		}
 		file := model.ObjThumb{
 			Object: model.Object{
+				Path:     filepath.Join(dir.GetPath(), f.Name()),
 				Name:     f.Name(),
 				Modified: f.ModTime(),
 				Size:     size,
@@ -96,29 +92,6 @@ func (d *Local) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([
 		files = append(files, &file)
 	}
 	return files, nil
-}
-
-func (d *Local) Get(ctx context.Context, path string) (model.Obj, error) {
-	f, err := os.Stat(path)
-	if err != nil {
-		if strings.Contains(err.Error(), "cannot find the file") {
-			return nil, errs.ObjectNotFound
-		}
-		return nil, err
-	}
-	isFolder := f.IsDir() || isSymlinkDir(f, path)
-	size := f.Size()
-	if isFolder {
-		size = 0
-	}
-	file := model.Object{
-		Path:     path,
-		Name:     f.Name(),
-		Modified: f.ModTime(),
-		Size:     size,
-		IsFolder: isFolder,
-	}
-	return &file, nil
 }
 
 func (d *Local) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
@@ -163,6 +136,9 @@ func (d *Local) MakeDir(ctx context.Context, parentDir model.Obj, dirName string
 func (d *Local) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	srcPath := srcObj.GetPath()
 	dstPath := filepath.Join(dstDir.GetPath(), srcObj.GetName())
+	if utils.IsSubPath(srcPath, dstPath) {
+		return fmt.Errorf("the destination folder is a subfolder of the source folder")
+	}
 	err := os.Rename(srcPath, dstPath)
 	if err != nil {
 		return err
@@ -183,6 +159,9 @@ func (d *Local) Rename(ctx context.Context, srcObj model.Obj, newName string) er
 func (d *Local) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	srcPath := srcObj.GetPath()
 	dstPath := filepath.Join(dstDir.GetPath(), srcObj.GetName())
+	if utils.IsSubPath(srcPath, dstPath) {
+		return fmt.Errorf("the destination folder is a subfolder of the source folder")
+	}
 	var err error
 	if srcObj.IsDir() {
 		err = utils.CopyDir(srcPath, dstPath)

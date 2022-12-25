@@ -64,7 +64,14 @@ func UpdateIndex() {
 
 func Static(r *gin.Engine) {
 	InitIndex()
-	folders := []string{"assets", "images", "streamer"}
+	folders := []string{"assets", "images", "streamer", "static"}
+	r.Use(func(c *gin.Context) {
+		for i := range folders {
+			if strings.HasPrefix(c.Request.RequestURI, fmt.Sprintf("/%s/", folders[i])) {
+				c.Header("Cache-Control", "public, max-age=15552000")
+			}
+		}
+	})
 	for i, folder := range folders {
 		folder = "dist/" + folder
 		sub, err := fs.Sub(public.Public, folder)

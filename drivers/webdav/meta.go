@@ -16,14 +16,12 @@ type Addition struct {
 var config = driver.Config{
 	Name:        "WebDav",
 	LocalSort:   true,
-	OnlyLocal:   true,
+	OnlyProxy:   true,
 	DefaultRoot: "/",
 }
 
-func New() driver.Driver {
-	return &WebDav{}
-}
-
 func init() {
-	op.RegisterDriver(config, New)
+	op.RegisterDriver(func() driver.Driver {
+		return &WebDav{}
+	})
 }

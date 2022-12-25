@@ -11,7 +11,6 @@ import (
 
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -31,19 +30,14 @@ func (d *S3) Config() driver.Config {
 }
 
 func (d *S3) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *S3) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *S3) Init(ctx context.Context) error {
 	if d.Region == "" {
 		d.Region = "alist"
 	}
-	err = d.initSession()
+	err := d.initSession()
 	if err != nil {
 		return err
 	}
@@ -62,11 +56,6 @@ func (d *S3) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]mo
 	}
 	return d.listV1(dir.GetPath())
 }
-
-//func (d *S3) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *S3) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	path := getKey(file.GetPath(), false)
@@ -145,7 +134,7 @@ func (d *S3) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreame
 		Key:    &key,
 		Body:   stream,
 	}
-	_, err := uploader.Upload(input)
+	_, err := uploader.UploadWithContext(ctx, input)
 	return err
 }
 

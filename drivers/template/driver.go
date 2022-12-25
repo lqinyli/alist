@@ -6,7 +6,6 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/pkg/utils"
 )
 
 type Template struct {
@@ -19,18 +18,13 @@ func (d *Template) Config() driver.Config {
 }
 
 func (d *Template) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *Template) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *Template) Init(ctx context.Context) error {
 	// TODO login / refresh token
 	//op.MustSaveDriverStorage(d)
-	return err
+	return nil
 }
 
 func (d *Template) Drop(ctx context.Context) error {
@@ -41,11 +35,6 @@ func (d *Template) List(ctx context.Context, dir model.Obj, args model.ListArgs)
 	// TODO return the files list
 	return nil, errs.NotImplement
 }
-
-//func (d *Template) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *Template) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	// TODO return link of file

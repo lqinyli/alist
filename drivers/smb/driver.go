@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/alist-org/alist/v3/internal/driver"
@@ -25,14 +26,12 @@ func (d *SMB) Config() driver.Config {
 }
 
 func (d *SMB) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *SMB) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
+func (d *SMB) Init(ctx context.Context) error {
+	if strings.Index(d.Addition.Address, ":") < 0 {
+		d.Addition.Address = d.Addition.Address + ":445"
 	}
 	return d.initFS()
 }
@@ -69,11 +68,6 @@ func (d *SMB) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]m
 	}
 	return files, nil
 }
-
-//func (d *SMB) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *SMB) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	if err := d.checkConn(); err != nil {

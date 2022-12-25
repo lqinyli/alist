@@ -23,15 +23,10 @@ func (d *SFTP) Config() driver.Config {
 }
 
 func (d *SFTP) GetAddition() driver.Additional {
-	return d.Addition
+	return &d.Addition
 }
 
-func (d *SFTP) Init(ctx context.Context, storage model.Storage) error {
-	d.Storage = storage
-	err := utils.Json.UnmarshalFromString(d.Storage.Addition, &d.Addition)
-	if err != nil {
-		return err
-	}
+func (d *SFTP) Init(ctx context.Context) error {
 	return d.initClient()
 }
 
@@ -51,11 +46,6 @@ func (d *SFTP) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]
 		return fileToObj(src), nil
 	})
 }
-
-//func (d *SFTP) Get(ctx context.Context, path string) (model.Obj, error) {
-//	// this is optional
-//	return nil, errs.NotImplement
-//}
 
 func (d *SFTP) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	remoteFile, err := d.client.Open(file.GetPath())

@@ -2,19 +2,43 @@ package db
 
 import (
 	"fmt"
+	"path"
+	"strings"
 
+	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
+
+func whereInParent(parent string) *gorm.DB {
+	if parent == "/" {
+		return db.Where("1 = 1")
+	}
+	return db.Where(fmt.Sprintf("%s LIKE ?", columnName("parent")),
+		fmt.Sprintf("%s/%%", parent)).
+		Or(fmt.Sprintf("%s = ?", columnName("parent")), parent)
+}
 
 func CreateSearchNode(node *model.SearchNode) error {
 	return db.Create(node).Error
 }
 
-func DeleteSearchNodesByParent(parent string) error {
-	return db.Where(fmt.Sprintf("%s LIKE ?",
-		columnName("path")), fmt.Sprintf("%s%%", parent)).
-		Delete(&model.SearchNode{}).Error
+func BatchCreateSearchNodes(nodes *[]model.SearchNode) error {
+	return db.CreateInBatches(nodes, 1000).Error
+}
+
+func DeleteSearchNodesByParent(prefix string) error {
+	prefix = utils.FixAndCleanPath(prefix)
+	err := db.Where(whereInParent(prefix)).Delete(&model.SearchNode{}).Error
+	if err != nil {
+		return err
+	}
+	dir, name := path.Split(prefix)
+	return db.Where(fmt.Sprintf("%s = ? AND %s = ?",
+		columnName("parent"), columnName("name")),
+		dir, name).Delete(&model.SearchNode{}).Error
 }
 
 func ClearSearchNodes() error {
@@ -31,12 +55,21 @@ func GetSearchNodesByParent(parent string) ([]model.SearchNode, error) {
 }
 
 func SearchNode(req model.SearchReq) ([]model.SearchNode, int64, error) {
-	searchDB := db.Model(&model.SearchNode{}).Where(
-		fmt.Sprintf("%s LIKE ? AND %s LIKE ?",
-			columnName("parent"),
-			columnName("name")),
-		fmt.Sprintf("%s%%", req.Parent),
-		fmt.Sprintf("%%%s%%", req.Keywords))
+	var searchDB *gorm.DB
+	switch conf.Conf.Database.Type {
+	case "sqlite3":
+		keywordsClause := db.Where("1 = 1")
+		for _, keyword := range strings.Fields(req.Keywords) {
+			keywordsClause = keywordsClause.Where("name LIKE ?", fmt.Sprintf("%%%s%%", keyword))
+		}
+		searchDB = db.Model(&model.SearchNode{}).Where(whereInParent(req.Parent)).Where(keywordsClause)
+	case "mysql":
+		searchDB = db.Model(&model.SearchNode{}).Where(whereInParent(req.Parent)).
+			Where("MATCH (name) AGAINST (? IN NATURAL LANGUAGE MODE)", req.Keywords)
+	case "postgres":
+		searchDB = db.Model(&model.SearchNode{}).Where(whereInParent(req.Parent)).
+			Where("to_tsvector(name) @@ to_tsquery(?)", strings.Join(strings.Fields(req.Keywords), " & "))
+	}
 	var count int64
 	if err := searchDB.Count(&count).Error; err != nil {
 		return nil, 0, errors.Wrapf(err, "failed get users count")
